@@ -252,13 +252,14 @@ class DrawingApp:
             self.canvas.itemconfig(self.rects[l][c], fill="black" if value == BLACK else "white")
 
 
+    # aplatit la grille : ligne 1, puis ligne 2, etc.
     def get_pixels(self):
-        """Aplatit la grille : ligne 1, puis ligne 2, etc."""
         return [p for row in self.grid for p in row]
 
     # ------------------------------------------------------------------ export PNG (OpenCV)
+
+    #save the image as a PNG file using OpenCV.
     def export_png(self, path, width, height, pixels):
-        """Enregistre l'image en PNG avec OpenCV. Retourne False si OpenCV n'est pas installe."""
         try:
             import cv2
             import numpy as np
@@ -270,9 +271,12 @@ class DrawingApp:
             buf.tofile(path)
         return ok
 
+    
+
     # ------------------------------------------------------------------ actions
+
+    # save the image, compress it and write the .rle file (automatic paths).
     def compress(self):
-        """Sauvegarde l'image, la compresse et ecrit le fichier .rle (chemins automatiques)."""
         w, h = self.width, self.height
         pixels = self.get_pixels()
         steps = []
@@ -357,6 +361,7 @@ class DrawingApp:
         self.result_canvas.create_image(0, 0, image=img, anchor="nw")
 
 
+# main loop : create the window and run the application
 if __name__ == "__main__":
     root = tk.Tk()
     app = DrawingApp(root)
