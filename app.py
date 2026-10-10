@@ -9,37 +9,62 @@ BLACK, WHITE = 0, 255
 MAX_DIM = 128            # taille max choisie dans l'interface
 CANVAS_MAX = 320         # taille maximale d'une zone d'image, en pixels ecran
 
-# Les fichiers sont enregistres automatiquement dans le dossier "output", a cote du programme
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
-RAW_PATH = os.path.join(OUTPUT_DIR, "image.raw")                  # image non compressee
-PNG_PATH = os.path.join(OUTPUT_DIR, "image.png")                  # meme image, en PNG (OpenCV)
-RLE_PATH = os.path.join(OUTPUT_DIR, "image.rle")                  # image compressee
-RESULT_PNG_PATH = os.path.join(OUTPUT_DIR, "image_decompressee.png")
+
+# programme folders , 4 steps
+chemin_fichier = __file__                            # ex. app.py
+chemin_complet = os.path.abspath(chemin_fichier)     # ex. C:\projet\app.py
+BASE_DIR = os.path.dirname(chemin_complet)           # ex. C:\projet
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")        # ex. C:\projet\output
+
+
+# every compression create a new folder : output/image_001, output/image_002, ...
+RAW_NAME = "image.raw"                              
+PNG_NAME = "image.png"                               
+RLE_NAME = "image.rle"                               
+RESULT_PNG_NAME = "image_decompressee.png"           
+
+
+# 
+def run_numbers():
+    if not os.path.isdir(OUTPUT_DIR):   # verify if the output directory exists
+        return []         
+    numbers = []   # create a list to store the numbers of the folders
+    for name in os.listdir(OUTPUT_DIR):  # listdir : give the names of the files and folders in the output directory
+        if name.startswith("image_") and name[6:].isdigit():   # check if the name starts with "image_" and the rest is a number
+            numbers.append(int(name[6:]))
+    return sorted(numbers)  # return the sorted list of numbers
+
+
+# transforme a number to an adress :  run_dir(7)  →  ".../output/image_007"
+def run_dir(number):
+    return os.path.join(OUTPUT_DIR, f"image_{number:03d}") 
 
 
 # ---------------------------------------------------------------- mise en forme des tableaux
-
-#function to return a symbol for a pixel value (0 or 255)
 def sym(v):
     return "■" if v == 0 else "□"
 
-# function to return a name for a pixel value (0 or 255)
+
 def pname(v):
     return "noir" if v == 0 else "blanc"
 
-#funtion 
+
+
+# \x80\x04\xff --> 80 04 ff
 def hexs(b, limit=10):
     text = " ".join(f"{x:02x}" for x in b[:limit])
     return text + (f" … (+{len(b) - limit} octets)" if len(b) > limit else "")
 
-#fucntion to return a string representation of a range of numbers
+# rng(0, 3) --> '0-3'       rng(5, 5) --> '5'
 def rng(a, b):
     return f"{a}" if a == b else f"{a}-{b}"
 
 
+
+# create the table of the compression and decompression steps
+
 def compression_rows(w, h, steps):
-    """Une ligne par bloc ecrit : (n, pixels, type, contenu, octets ecrits)."""
-    rows = [("—", "—", "En-tête", f"largeur {w}, hauteur {h}", hexs(write_header(w, h)))]
+    rows = [("—", "—", "En-tête", f"largeur {w}, hauteur {h}", hexs(write_header(w, h)))]  # entete line 
     for k, ev in enumerate(steps, 1):
         pos = rng(ev["start"], ev["start"] + ev["count"] - 1)
         if ev["type"] == "rep":
@@ -51,9 +76,7 @@ def compression_rows(w, h, steps):
     return rows
 
 
-
 def decompression_rows(w, h, steps):
-    """Une ligne par bloc lu : (n, octets lus, mot, lecture du mot, pixels produits)."""
     rows = [("—", rng(0, HEADER_SIZE - 1), hexs(write_header(w, h)),
              f"En-tête : largeur {w}, hauteur {h}", "—")]
     for k, ev in enumerate(steps, 1):
@@ -71,9 +94,7 @@ def decompression_rows(w, h, steps):
     return rows
 
 
-#function 
 def photo_data(width, height, pixels):
-    """Texte attendu par PhotoImage.put : une accolade par ligne, une couleur par pixel."""
     colors = {0: "#000000", 255: "#ffffff"}
     rows = []
     for l in range(height):
@@ -82,10 +103,8 @@ def photo_data(width, height, pixels):
     return " ".join(rows)
 
 
-#function to create the table
 def make_table(parent, columns):
-    """columns = [(id, titre, largeur), ...]. Retourne le tableau (Treeview) avec sa barre de defilement."""
-    frame = tk.Frame(parent)     
+    frame = tk.Frame(parent)
     frame.pack(fill="both", expand=True)
     tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=6)
     for cid, title, width in columns:
@@ -98,7 +117,6 @@ def make_table(parent, columns):
     return tree
 
 
-#function to fill the table with rows
 def fill_table(tree, rows):
     tree.delete(*tree.get_children())
     for r in rows:
@@ -108,44 +126,51 @@ def fill_table(tree, rows):
 # ---------------------------------------------------------------- application
 class DrawingApp:
     def __init__(self, root):
-        self.root = root
-        root.title("Codec RLE - images binaires")
+        self.root = root         # the main window
+        root.title("Codec RLE - images binaires")  #the windeow title
 
-        self.width = 0           # n : nombre de colonnes
-        self.height = 0          # m : nombre de lignes
-        self.cell = 10           # taille d'une case a l'ecran
-        self.grid = []           # donnees : grid[ligne][colonne] = 0 ou 255
-        self.rects = []          # affichage : identifiants des rectangles
-        self.result_img = None   # garder une reference, sinon l'image disparait
+        self.width = 0           # n : number of columns
+        self.height = 0          # m : number of rows
+        self.cell = 10           # size of a cell in pixels on the screen
+        self.grid = []           # donnees : grid[ligne][colonne] = 0 or 255
+        self.rects = []          # rects[ligne][colonne] = rectangle object on the canvas
+        self.result_img = None   # stock a reference, otherwise the image is garbage collected and disappears from the canvas
 
-        # --- barre du haut : dimensions + 4 boutons ---
-        top = tk.Frame(root)
-        top.pack(padx=10, pady=(10, 0))
-        tk.Label(top, text="Largeur (n) :").pack(side="left")
-        self.entry_w = tk.Entry(top, width=5)
-        self.entry_w.insert(0, "32")
-        self.entry_w.pack(side="left", padx=(2, 10))
-        tk.Label(top, text="Hauteur (m) :").pack(side="left")
-        self.entry_h = tk.Entry(top, width=5)
-        self.entry_h.insert(0, "32")
-        self.entry_h.pack(side="left", padx=(2, 12))
+        # --- top bar : dimensions + 4 buttons ---
+
+        top = tk.Frame(root)             # create a frame for the top bar
+        top.pack(padx=10, pady=(10, 0))  # pack the frame with padding
+
+
+        tk.Label(top, text="Largeur (n) :").pack(side="left")   # create a label for the width
+        self.entry_w = tk.Entry(top, width=5)                   # create an entry for the width
+        self.entry_w.insert(0, "32")                            # insert the default value 32
+        self.entry_w.pack(side="left", padx=(2, 10))            # pack the entry with padding
+
+        tk.Label(top, text="Hauteur (m) :").pack(side="left")   # create a label for the height
+        self.entry_h = tk.Entry(top, width=5)                   # create an entry for the height
+        self.entry_h.insert(0, "32")                            # insert the default value 32
+        self.entry_h.pack(side="left", padx=(2, 12))            # pack the entry with padding
+
+        # --- buttons ---
         tk.Button(top, text="Créer la grille", command=self.create_grid).pack(side="left", padx=3)
         tk.Button(top, text="Effacer", command=self.clear).pack(side="left", padx=3)
         tk.Button(top, text="Compresser", command=self.compress).pack(side="left", padx=(16, 3))
         tk.Button(top, text="Décompresser", command=self.decompress).pack(side="left", padx=3)
 
-        # --- les deux images ---
-        views = tk.Frame(root)
-        views.pack(padx=10, pady=8)
-        left = tk.Frame(views)
-        left.pack(side="left", padx=12, anchor="n")
-        tk.Label(left, text="Image dessinée").pack()
-        self.canvas = tk.Canvas(left, bg="white")
-        self.canvas.pack()
-        self.canvas.bind("<Button-1>",  lambda e: self.paint(e, BLACK))
-        self.canvas.bind("<B1-Motion>", lambda e: self.paint(e, BLACK))
-        self.canvas.bind("<Button-3>",  lambda e: self.paint(e, WHITE))
-        self.canvas.bind("<B3-Motion>", lambda e: self.paint(e, WHITE))
+        # --- both images --
+        views = tk.Frame(root)         # pack the frame with padding
+        views.pack(padx=10, pady=8)    
+        left = tk.Frame(views)          # left frame for the drawn image
+        left.pack(side="left", padx=12, anchor="n")   # pack the left frame with padding and anchor to the north
+        tk.Label(left, text="Image dessinée").pack()  # create a label for the drawn image
+
+        self.canvas = tk.Canvas(left, bg="white")     # create a canvas for the drawn image
+        self.canvas.pack()                            # pack the canvas
+        self.canvas.bind("<Button-1>",  lambda e: self.paint(e, BLACK))  # bind the left mouse button to paint black
+        self.canvas.bind("<B1-Motion>", lambda e: self.paint(e, BLACK))  # bind the left mouse button motion to paint black
+        self.canvas.bind("<Button-3>",  lambda e: self.paint(e, WHITE))  # bind the right mouse button to paint white
+        self.canvas.bind("<B3-Motion>", lambda e: self.paint(e, WHITE))  # bind the right mouse button motion to paint white
 
         right = tk.Frame(views)
         right.pack(side="left", padx=12, anchor="n")
@@ -199,11 +224,25 @@ class DrawingApp:
                                                     fill="white", outline="lightgray")
                        for c in range(w)] for l in range(h)]
 
+
     def clear(self):
         for l in range(self.height):
             for c in range(self.width):
                 self.grid[l][c] = WHITE
                 self.canvas.itemconfig(self.rects[l][c], fill="white")
+
+        # on efface aussi l'image décompressée affichée à droite
+        self.result_canvas.delete("all")                       # enlève l'image du canvas
+        self.result_canvas.config(width=150, height=150)       # taille de départ
+        self.result_img = None                                 # libère l'image en mémoire
+        self.result_label.config(text="", fg="black")          # enlève le message ✔ / ✘
+
+        # on efface aussi les infos et les tableaux d'étapes
+        self.stats_label.config(text="")                       # taille, taux, gain
+        self.files_label.config(text="")                       # dossier / fichier chargé
+        fill_table(self.table_c, [])                           # tableau de compression vide
+        fill_table(self.table_d, [])                           # tableau de décompression vide
+
 
     def paint(self, event, value):
         c = event.x // self.cell
@@ -211,6 +250,7 @@ class DrawingApp:
         if 0 <= c < self.width and 0 <= l < self.height:
             self.grid[l][c] = value
             self.canvas.itemconfig(self.rects[l][c], fill="black" if value == BLACK else "white")
+
 
     def get_pixels(self):
         """Aplatit la grille : ligne 1, puis ligne 2, etc."""
@@ -236,33 +276,44 @@ class DrawingApp:
         w, h = self.width, self.height
         pixels = self.get_pixels()
         steps = []
+        numbers = run_numbers()                        #ex. [1, 2]               
+        number = (numbers[-1] if numbers else 0) + 1   # numbers[-1] = 2 → 2 + 1 = 3   
+        folder = run_dir(number)                       # ".../output/image_003" (only texte)
         try:
-            os.makedirs(OUTPUT_DIR, exist_ok=True)
-            raw_size = save_raw(RAW_PATH, w, h, pixels)
-            png_ok = self.export_png(PNG_PATH, w, h, pixels)
-            rle_size = save_rle(RLE_PATH, w, h, pixels, steps=steps)
+            os.makedirs(folder)                           # create output/ and image_00N if needed
+            raw_size = save_raw(os.path.join(folder, RAW_NAME), w, h, pixels)
+            png_ok = self.export_png(os.path.join(folder, PNG_NAME), w, h, pixels)
+            rle_size = save_rle(os.path.join(folder, RLE_NAME), w, h, pixels, steps=steps)
         except OSError as e:
             messagebox.showerror("Erreur", f"Impossible d'écrire les fichiers : {e}")
             return
 
         fill_table(self.table_c, compression_rows(w, h, steps))
         self.tabs.select(0)
-        gain = (1 - rle_size / raw_size) * 100
+        taux = 1 - rle_size / raw_size     # taux de compression (cours) : 1 - final / initial
+        gain = taux * 100                  # gain = le même taux, en pourcentage
         self.stats_label.config(
             text=f"Image brute : {raw_size} octets   |   Fichier compressé : {rle_size} octets   |   "
-                 f"Taux : {raw_size / rle_size:.2f} : 1   |   Gain : {gain:.1f} %")
+                 f"Taux : {taux:.2f}   |   Gain : {gain:.1f} %")
         self.files_label.config(
-            text=f"Enregistré dans le dossier « output » : image.raw, image.rle"
+            text=f"Enregistré dans output/image_{number:03d} : image.raw, image.rle"
                  + (", image.png" if png_ok else "  (OpenCV absent : PNG non créé)"))
 
+
+    # decompress the RLE file and display the resulting image
     def decompress(self):
-        """Charge le fichier .rle, le decompresse et affiche l'image resultat."""
-        if not os.path.exists(RLE_PATH):
+        numbers = run_numbers()               # ex. [1, 2, 3]
+        if not numbers:
+            messagebox.showinfo("Info", "Compressez d'abord une image.")
+            return
+        folder = run_dir(numbers[-1])                     # the last folder created : ".../output/image_003"
+        rle_path = os.path.join(folder, RLE_NAME)         # the path of the RLE file : ".../output/image_003/image.rle"
+        if not os.path.exists(rle_path):
             messagebox.showinfo("Info", "Compressez d'abord une image.")
             return
         steps = []
         try:
-            w, h, payload = read_rle_file(RLE_PATH)
+            w, h, payload = read_rle_file(rle_path)
             pixels = decode(payload, steps=steps)
             if len(pixels) != w * h:
                 raise ValueError(f"{len(pixels)} pixels obtenus, {w} x {h} = {w * h} attendus")
@@ -276,7 +327,7 @@ class DrawingApp:
         fill_table(self.table_d, decompression_rows(w, h, steps))
         self.tabs.select(1)
         self.show_image(w, h, pixels)
-        self.files_label.config(text=f"Fichier chargé : image.rle ({w} x {h}, {HEADER_SIZE + len(payload)} octets)")
+        self.files_label.config(text=f"Fichier chargé : image_{numbers[-1]:03d}/image.rle ({w} x {h}, {HEADER_SIZE + len(payload)} octets)")
 
         if (w, h) == (self.width, self.height):
             if pixels == self.get_pixels():
@@ -285,7 +336,9 @@ class DrawingApp:
                 self.result_label.config(text="✘ Différente du dessin actuel", fg="red")
         else:
             self.result_label.config(text="", fg="black")
-        self.export_png(RESULT_PNG_PATH, w, h, pixels)
+        self.export_png(os.path.join(folder, RESULT_PNG_NAME), w, h, pixels)
+
+
 
     def show_image(self, w, h, pixels):
         img = tk.PhotoImage(master=self.root, width=w, height=h)
